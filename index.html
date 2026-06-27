@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Audio Book Reader</title>
+    <!-- PDF.js for parsing PDF files directly in the browser -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --surface-color: #1e1e1e;
+            --primary-color: #bb86fc;
+            --text-color: #e0e0e0;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        header {
+            background-color: var(--surface-color);
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            overflow: hidden;
+        }
+        .controls-panel {
+            background-color: var(--surface-color);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .book-viewer {
+            flex: 1;
+            background-color: var(--surface-color);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+            font-size: 1.2rem;
+            line-height: 1.6;
+            border: 1px solid #333;
+        }
+        .nav-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15px;
+            gap: 20px;
+        }
+        button, label.file-label {
+            background-color: var(--primary-color);
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1rem;
+            transition: opacity 0.2s;
+        }
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        select, input[type="range"] {
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 8px;
+            border-radius: 5px;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .status {
+            font-size: 0.9rem;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Smart Voice E-Reader</h1>
+    </header>
+
+    <div class="container">
+        <div class="controls-panel">
+            <div>
+                <label class="file-label" for="file-upload">Import PDF</label>
+                <input type="file" id="file-upload" accept=".pdf">
+                <span id="file-name" class="status">No file loaded</span>
+            </div>
+            
+            <div>
+                <label for="voice-select">Voice: </label>
+                <select id="voice-select"><option>Loading voices...</option></select>
+            </div>
+
+            <div>
+                <button id="btn-play" disabled>▶ Play</button>
+                <button id="btn-pause" disabled>⏸ Pause</button>
+                <button id="btn-stop" disabled>⏹ Stop</button>
+            </div>
+        </div>
+
+        <div class="book-viewer" id="viewer-content">
+            Please import a PDF file to begin reading. Your page progress will be saved automatically.
+        </div>
+
+        <div class="nav-buttons">
+            <button id="btn-prev" disabled>◀ Back Page</button>
+            <span id="page-number" class="status">Page: 0 / 0</span>
+            <button id="btn-next" disabled>Next Page ▶</button>
+        </div>
+    </div>
+
+    <script>
+        // Setup PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        let pdfDoc = null;
+        let currentPage = 1;
+        let totalPages = 0;
+        let pageTextCache = "";
+        let currentFileName = "";
+        
+        // Speech Synthesis setup
+        const synth = window.speechSynthesis;
+        let utterance = null;
+
+        // DOM elements
+        const fileUpload = document.getElementById('file-upload');
+        const fileNameSpan = document.getElementById('file-name');
+        const viewerContent = document.getElementById('viewer-content');
+        const pageNumberSpan = document.getElementById('page-number');
+        const voiceSelect = document.getElementById('voice-select');
+        
+        const btnPlay = document.getElementById('btn-play');
+        const btnPause = document.getElementById('btn-pause');
+        const btnStop = document.getElementById('btn-stop');
+        const btnPrev = document.getElementById('btn-prev');
+        const btnNext = document.getElementById('btn-next');
+
+        // Load standard mobile and desktop system voices
+        function populateVoiceList() {
+            if (!synth) return;
+            const voices = synth.getVoices();
+            voiceSelect.innerHTML = '';
+            
+            voices.forEach((voice) => {
+                const option = document.createElement('option');
+                option.textContent = `${voice.name} (${voice.lang})`;
+                option.setAttribute('data-lang', voice.lang);
+                option.setAttribute('data-name', voice.name);
+                voiceSelect.appendChild(option);
+            });
+        }
+        populateVoiceList();
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = populateVoiceList;
+        }
+
+        // Handle File Import
+        fileUpload.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            currentFileName = file.name;
+            fileNameSpan.textContent = currentFileName;
+            
+            const fileReader = new FileReader();
+            fileReader.onload = async function() {
+                const typedarray = new Uint8Array(this.result);
+                try {
+                    pdfDoc = await pdfjsLib.getDocument(typedarray).promise;
+                    totalPages = pdfDoc.numPages;
+                    
+                    // Check if user has saved history for this specific book
+                    const savedPage = localStorage.getItem(`saved_page_${currentFileName}`);
+                    currentPage = savedPage ? parseInt(savedPage) : 1;
+                    
+                    renderPage(currentPage);
+                    enableControls();
+                } catch (error) {
+                    viewerContent.textContent = "Error parsing PDF structure. Please try another file.";
+                }
+            };
+            fileReader.readAsArrayBuffer(file);
+        });
+
+        // Extract and display text layout for current page
+        async function renderPage(pageNo) {
+            if (!pdfDoc) return;
+            synth.cancel(); // Stop talking if page turns
+            
+            viewerContent.textContent = "Extracting book layout...";
+            pageNumberSpan.textContent = `Page: ${pageNo} / ${totalPages}`;
+            
+            const page = await pdfDoc.getPage(pageNo);
+            const textContent = await page.getTextContent();
+            
+            // Reconstruct continuous strings from raw coordinates
+            let lastY = -1;
+            let extractedText = "";
+            
+            for (let item of textContent.items) {
+                if (lastY !== -1 && Math.abs(item.transform[5] - lastY) > 5) {
+                    extractedText += "\n";
+                }
+                extractedText += item.str + " ";
+                lastY = item.transform[5];
+            }
+            
+            pageTextCache = extractedText.trim() || "[This page contains images or formatting that cannot be read out loud.]";
+            viewerContent.innerHTML = pageTextCache.replace(/\n/g, '<br>');
+            viewerContent.scrollTop = 0;
+            
+            // Save state to local browser memory
+            localStorage.setItem(`saved_page_${currentFileName}`, pageNo);
+            
+            // Toggle navigation button rules
+            btnPrev.disabled = pageNo <= 1;
+            btnNext.disabled = pageNo >= totalPages;
+        }
+
+        function enableControls() {
+            btnPlay.disabled = false;
+            btnPause.disabled = false;
+            btnStop.disabled = false;
+        }
+
+        // Audio Management Rules
+        btnPlay.addEventListener('click', () => {
+            if (synth.speaking && synth.paused) {
+                synth.resume();
+                return;
+            }
+            
+            if (pageTextCache) {
+                synth.cancel(); // Clear current execution stack
+                utterance = new SpeechSynthesisUtterance(pageTextCache);
+                
+                // Track language attributes or standard selections
+                const selectedOption = voiceSelect.selectedOptions[0].getAttribute('data-name');
+                const voices = synth.getVoices();
+                utterance.voice = voices.find(v => v.name === selectedOption);
+                
+                // Automatically turn page when reading finishes
+                utterance.onend = () => {
+                    if (currentPage < totalPages) {
+                        currentPage++;
+                        renderPage(currentPage).then(() => btnPlay.click());
+                    }
+                };
+
+                synth.speak(utterance);
+            }
+        });
+
+        btnPause.addEventListener('click', () => {
+            if (synth.speaking && !synth.paused) {
+                synth.pause();
+            }
+        });
+
+        btnStop.addEventListener('click', () => {
+            synth.cancel();
+        });
+
+        // Navigation Actions
+        btnNext.addEventListener('click', () => {
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderPage(currentPage);
+            }
+        });
+
+        btnPrev.addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                renderPage(currentPage);
+            }
+        });
+    </script>
+</body>
+</html>
