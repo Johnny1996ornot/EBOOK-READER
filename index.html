@@ -5,7 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI Voice Reader</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    
+    <!-- FIX: Updated PDF.js to a stable version and included both the core and the worker -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
     <!-- PWA Manifest for App Installation -->
@@ -81,6 +85,18 @@
                     <i class="fas fa-plus mr-2"></i> Import Document
                 </label>
                 <input type="file" id="file-upload" accept=".pdf" class="hidden">
+            </div>
+
+            <!-- Error State (New) -->
+            <div id="error-state" class="hidden h-full flex flex-col items-center justify-center text-center space-y-4 pb-20">
+                <div class="text-red-400 text-5xl mb-2">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <h2 class="text-xl font-bold text-white">Couldn't Load PDF</h2>
+                <p class="text-slate-400 text-sm max-w-xs mx-auto" id="error-message">Something went wrong reading this file.</p>
+                <button onclick="resetToEmptyState()" class="mt-4 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors">
+                    Try Again
+                </button>
             </div>
 
             <!-- Reading State -->
@@ -185,8 +201,17 @@
             progressBar: document.getElementById('progress-bar'),
             progressCurrent: document.getElementById('progress-current'),
             progressTotal: document.getElementById('progress-total'),
-            voiceSelect: document.getElementById('voice-select')
+            voiceSelect: document.getElementById('voice-select'),
+            errorState: document.getElementById('error-state'),
+            errorMessage: document.getElementById('error-message')
         };
+
+        function resetToEmptyState() {
+            ui.errorState.classList.add('hidden');
+            ui.readingState.classList.add('hidden');
+            ui.emptyState.classList.remove('hidden');
+            ui.fileUpload.value = ''; // Reset file input
+        }
 
         // --- STREAMING_CHUNK:Audio Processing Utilities... ---
         // Converts base64 PCM16 data from the Gemini API into a playable WAV file
@@ -293,38 +318,42 @@
             const file = e.target.files[0];
             if (!file) return;
 
+            ui.errorState.classList.add('hidden');
             showLoading();
             state.fileName = file.name;
             ui.bookTitle.textContent = file.name;
             
             try {
-                const fileReader = new FileReader();
-                fileReader.onload = async function() {
-                    const typedarray = new Uint8Array(this.result);
-                    state.pdfDoc = await pdfjsLib.getDocument(typedarray).promise;
-                    state.totalPages = state.pdfDoc.numPages;
-                    
-                    // Setup UI limits
-                    ui.progressBar.max = state.totalPages;
-                    ui.progressTotal.textContent = state.totalPages;
-                    
-                    // Load saved page or start at 1
-                    const savedPage = localStorage.getItem(`pdf_page_${state.fileName}`);
-                    state.currentPage = savedPage ? parseInt(savedPage) : 1;
-                    
-                    await renderPage(state.currentPage);
-                    
-                    // Reveal UI
-                    ui.emptyState.classList.add('hidden');
-                    ui.readingState.classList.remove('hidden');
-                    ui.playerControls.classList.remove('translate-y-full');
-                    hideLoading();
-                };
-                fileReader.readAsArrayBuffer(file);
+                const arrayBuffer = await file.arrayBuffer();
+                
+                // Using pdfjsLib (capitalized correctly for the global object)
+                const loadingTask = pdfjsLib.getDocument({data: arrayBuffer});
+                state.pdfDoc = await loadingTask.promise;
+                state.totalPages = state.pdfDoc.numPages;
+                
+                // Setup UI limits
+                ui.progressBar.max = state.totalPages;
+                ui.progressTotal.textContent = state.totalPages;
+                
+                // Load saved page or start at 1
+                const savedPage = localStorage.getItem(`pdf_page_${state.fileName}`);
+                state.currentPage = savedPage ? parseInt(savedPage) : 1;
+                
+                // Reveal UI before rendering to ensure dimensions are correct
+                ui.emptyState.classList.add('hidden');
+                ui.readingState.classList.remove('hidden');
+                ui.playerControls.classList.remove('translate-y-full');
+                
+                await renderPage(state.currentPage);
+                hideLoading();
+
             } catch (err) {
                 console.error("PDF Load Error:", err);
-                alert("Failed to load PDF file.");
                 hideLoading();
+                ui.emptyState.classList.add('hidden');
+                ui.readingState.classList.add('hidden');
+                ui.errorState.classList.remove('hidden');
+                ui.errorMessage.textContent = "Failed to parse the PDF. The file might be corrupted or secured.";
             }
         });
 
@@ -363,8 +392,11 @@
                 }
 
                 // Chunk into logical sentences for smooth TTS
-                // Split by ., !, or ? followed by a space
-                state.sentences = cleanText.match(/[^.!?]+[.!?]+/g) || [cleanText];
+                // Split by ., !, or ? followed by a space or end of string
+                state.sentences = cleanText.match(/[^.!?]+[.!?]+(?:\s|$)/g) || [cleanText];
+                // Trim the sentences to remove leading/trailing whitespace
+                state.sentences = state.sentences.map(s => s.trim()).filter(s => s.length > 0);
+                
                 state.currentSentenceIdx = 0;
                 state.audioCache = {}; // clear old audio
                 
