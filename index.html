@@ -3,599 +3,207 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Voice Reader</title>
+    <title>AI Reader Pro</title>
+    <link rel="manifest" href="manifest.json">
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- FIX: Updated PDF.js to a stable version and included both the core and the worker -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
-
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    
-    <!-- PWA Manifest for App Installation -->
-    <link rel="manifest" href='data:application/manifest+json;utf8,{"name":"AI Voice Reader","short_name":"AI Reader","start_url":".","display":"standalone","background_color":"#0f172a","theme_color":"#0f172a","icons":[{"src":"https://placehold.co/192x192/0ea5e9/ffffff?text=AI","sizes":"192x192","type":"image/png"},{"src":"https://placehold.co/512x512/0ea5e9/ffffff?text=AI","sizes":"512x512","type":"image/png"}]}'>
-
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        body {
-            font-family: 'Inter', sans-serif;
-            -webkit-tap-highlight-color: transparent;
-            background-color: #0f172a; /* Slate 900 */
-        }
-        .app-container {
-            max-width: 600px;
-            margin: 0 auto;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            background-color: #1e293b; /* Slate 800 */
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
-            position: relative;
-            overflow: hidden;
-        }
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        
-        /* Highlight the sentence currently being read aloud */
-        .sentence-highlight {
-            background-color: rgba(14, 165, 233, 0.25);
-            color: #38bdf8;
-            border-radius: 4px;
-            padding: 2px 4px;
-            transition: all 0.2s ease;
-            font-weight: 600;
-        }
-        
-        /* Custom Range Slider */
-        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
-        input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%;
-            background: #38bdf8; cursor: pointer; margin-top: -6px;
-        }
-        input[type=range]::-webkit-slider-runnable-track {
-            width: 100%; height: 4px; cursor: pointer; background: #475569; border-radius: 2px;
-        }
+        body { background-color: #0f172a; color: #f1f5f9; }
+        .hidden { display: none; }
+        .loading-spinner { border: 4px solid #334155; border-top: 4px solid #38bdf8; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
     </style>
 </head>
-<body class="text-slate-200">
+<body class="h-screen flex flex-col p-4 md:p-8 font-sans">
+    <header class="flex justify-between items-center mb-6 max-w-2xl mx-auto w-full">
+        <h1 class="text-2xl font-bold text-sky-400">📖 AI Reader</h1>
+        <div id="status-badge" class="text-xs px-3 py-1 rounded-full bg-slate-800 text-slate-400">Ready</div>
+    </header>
 
-    <div class="app-container">
-        <!-- Top App Bar -->
-        <div class="bg-slate-900 px-5 py-4 flex items-center justify-between shadow-md z-10 shrink-0">
-            <h1 class="text-xl font-bold text-sky-400"><i class="fas fa-book-open mr-2"></i>AI Reader</h1>
-            <div class="text-xs font-semibold bg-slate-800 text-slate-400 px-3 py-1.5 rounded-full" id="status-badge">
-                Ready
-            </div>
+    <main id="app-container" class="flex-1 flex flex-col gap-6 max-w-2xl mx-auto w-full">
+        <!-- Import Area -->
+        <div id="import-section" class="bg-slate-800 p-8 rounded-2xl border border-slate-700 text-center flex flex-col items-center gap-4">
+            <div id="spinner" class="hidden loading-spinner"></div>
+            <p id="instruction-text" class="text-slate-400">Import a PDF to start listening.</p>
+            <label class="cursor-pointer bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 px-8 rounded-xl transition">
+                + Import Document
+                <input type="file" id="upload" accept=".pdf" class="hidden">
+            </label>
         </div>
 
-        <!-- Main Content Area -->
-        <div class="flex-1 overflow-y-auto hide-scrollbar p-5 relative" id="reader-container">
-            
-            <!-- Empty State -->
-            <div id="empty-state" class="h-full flex flex-col items-center justify-center text-center space-y-6">
-                <div class="w-24 h-24 bg-slate-800 rounded-full flex items-center justify-center text-sky-400 text-4xl shadow-inner">
-                    <i class="fas fa-file-pdf"></i>
+        <!-- Controls Area -->
+        <div id="controls-section" class="hidden bg-slate-800 p-6 rounded-2xl border border-slate-700 flex flex-col gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="text-xs text-slate-400 uppercase tracking-widest">Select Voice</label>
+                    <select id="voice-select" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm mt-1 text-white"></select>
                 </div>
                 <div>
-                    <h2 class="text-2xl font-bold text-white mb-2">No Book Loaded</h2>
-                    <p class="text-slate-400 text-sm max-w-xs mx-auto">Import a PDF file from your device to start listening with human-like AI voices.</p>
+                    <label class="text-xs text-slate-400 uppercase tracking-widest">Speed (<span id="rate-val">0.9</span>x)</label>
+                    <input type="range" id="rate" min="0.5" max="1.5" step="0.1" value="0.9" class="w-full mt-2 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
                 </div>
-                <!-- File Upload Label & Hidden Input -->
-                <label for="file-upload" class="bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg shadow-sky-500/30 cursor-pointer transition-all active:scale-95 flex items-center">
-                    <i class="fas fa-plus mr-2"></i> Import Document
-                </label>
-                <input type="file" id="file-upload" accept=".pdf" class="hidden">
             </div>
 
-            <!-- Error State (New) -->
-            <div id="error-state" class="hidden h-full flex flex-col items-center justify-center text-center space-y-4 pb-20">
-                <div class="text-red-400 text-5xl mb-2">
-                    <i class="fas fa-exclamation-triangle"></i>
-                </div>
-                <h2 class="text-xl font-bold text-white">Couldn't Load PDF</h2>
-                <p class="text-slate-400 text-sm max-w-xs mx-auto" id="error-message">Something went wrong reading this file.</p>
-                <button onclick="resetToEmptyState()" class="mt-4 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors">
-                    Try Again
-                </button>
-            </div>
-
-            <!-- Reading State -->
-            <div id="reading-state" class="hidden pb-48">
-                <div class="flex justify-between items-center mb-6 sticky top-0 bg-slate-800/95 backdrop-blur py-2 z-10">
-                    <div class="text-sm font-medium text-slate-400 bg-slate-900 px-3 py-1 rounded-full border border-slate-700 truncate max-w-[60%]" id="book-title">
-                        Loading...
-                    </div>
-                    <div class="text-sm font-bold text-sky-400 bg-sky-400/10 px-3 py-1 rounded-full" id="page-indicator">
-                        Page 1
-                    </div>
-                </div>
-                <div id="text-content" class="text-lg leading-relaxed text-slate-300 font-medium space-y-2">
-                    <!-- Text chunks will be injected here dynamically -->
-                </div>
+            <div class="flex gap-2">
+                <button id="play" class="flex-[2] bg-sky-600 hover:bg-sky-500 py-3 rounded-xl font-bold transition">Play</button>
+                <button id="pause" class="flex-1 bg-slate-700 hover:bg-slate-600 py-3 rounded-xl font-bold transition">Pause</button>
+                <button id="stop" class="flex-1 bg-red-900/50 hover:bg-red-900 py-3 rounded-xl font-bold transition">Stop</button>
             </div>
             
-            <!-- Loading Overlay -->
-            <div id="loading-overlay" class="absolute inset-0 bg-slate-800/90 backdrop-blur-sm hidden flex-col items-center justify-center z-20">
-                <i class="fas fa-circle-notch fa-spin text-4xl text-sky-400 mb-4"></i>
-                <p class="text-slate-200 font-medium" id="loading-text">Processing Document...</p>
+            <div class="flex justify-between items-center text-sm text-slate-400">
+                <button id="prev-page" class="hover:text-white px-2 py-1">Previous</button>
+                <span id="page-indicator">Page 1 / 0</span>
+                <button id="next-page" class="hover:text-white px-2 py-1">Next</button>
             </div>
         </div>
 
-        <!-- Bottom Player Controls -->
-        <div class="bg-slate-900 rounded-t-3xl p-6 shadow-[0_-10px_40px_rgba(0,0,0,0.4)] z-10 shrink-0 absolute bottom-0 left-0 right-0 transform transition-transform duration-300 translate-y-full" id="player-controls">
-            
-            <!-- Voice Selection -->
-            <div class="mb-5 flex items-center justify-between">
-                <label class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Voice Profile</label>
-                <select id="voice-select" class="bg-slate-800 text-sky-400 text-sm font-medium border border-slate-700 rounded-lg px-2 py-1.5 outline-none focus:border-sky-500">
-                    <option value="Kore">Female 1 (Firm, Clear)</option>
-                    <option value="Aoede">Female 2 (Breezy, Natural)</option>
-                    <option value="Charon">Male 1 (Deep, Professional)</option>
-                    <option value="Fenrir">Male 2 (Energetic, Dynamic)</option>
-                    <option value="Puck">Neutral (Upbeat, Androgynous)</option>
-                </select>
-            </div>
-
-            <!-- Progress Bar -->
-            <div class="mb-6">
-                <div class="flex justify-between text-xs text-slate-400 mb-2 font-medium">
-                    <span id="progress-current">1</span>
-                    <span>Page Progress</span>
-                    <span id="progress-total">100</span>
-                </div>
-                <input type="range" id="progress-bar" min="1" max="100" value="1" class="w-full">
-            </div>
-
-            <!-- Playback Buttons -->
-            <div class="flex items-center justify-center space-x-8">
-                <button id="btn-prev-page" class="w-12 h-12 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
-                    <i class="fas fa-step-backward text-xl"></i>
-                </button>
-                
-                <button id="btn-play-pause" class="w-16 h-16 flex items-center justify-center rounded-full bg-sky-500 hover:bg-sky-600 text-white shadow-lg shadow-sky-500/30 transition-transform active:scale-95">
-                    <i class="fas fa-play text-2xl ml-1" id="play-icon"></i>
-                </button>
-                
-                <button id="btn-next-page" class="w-12 h-12 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
-                    <i class="fas fa-step-forward text-xl"></i>
-                </button>
-            </div>
+        <!-- Reader Display -->
+        <div id="viewer" class="hidden flex-1 overflow-y-auto bg-slate-950 p-6 rounded-2xl border border-slate-800 text-slate-300 leading-relaxed min-h-[300px]">
+            <div id="output" class="whitespace-pre-wrap text-lg"></div>
         </div>
-    </div>
+    </main>
 
     <script>
-        // Set up PDF.js worker
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
 
-        // Core Application State
-        let state = {
-            pdfDoc: null,
-            fileName: "",
-            totalPages: 0,
-            currentPage: 1,
-            sentences: [],        // Text split into manageable sentences
-            currentSentenceIdx: 0,
-            isPlaying: false,
-            audioCache: {},       // Cache downloaded audio to prevent re-fetching
-            preloadingIdx: -1     // Track what we are currently preloading
-        };
+        let pdf = null;
+        let currentPage = 1;
+        let pagesText = [];
+        let isSpeaking = false;
+        let utterance = null;
+        
+        const synth = window.speechSynthesis;
+        const rateInput = document.getElementById('rate');
+        const rateVal = document.getElementById('rate-val');
+        const voiceSelect = document.getElementById('voice-select');
+        const statusBadge = document.getElementById('status-badge');
 
-        const audioPlayer = new Audio();
+        rateInput.oninput = (e) => rateVal.textContent = parseFloat(e.target.value).toFixed(1);
 
-        // DOM Elements
-        const ui = {
-            fileUpload: document.getElementById('file-upload'),
-            emptyState: document.getElementById('empty-state'),
-            readingState: document.getElementById('reading-state'),
-            playerControls: document.getElementById('player-controls'),
-            textContent: document.getElementById('text-content'),
-            bookTitle: document.getElementById('book-title'),
-            pageIndicator: document.getElementById('page-indicator'),
-            loadingOverlay: document.getElementById('loading-overlay'),
-            statusBadge: document.getElementById('status-badge'),
+        function updateStatus(msg, color = 'bg-slate-800') {
+            statusBadge.textContent = msg;
+            statusBadge.className = `text-xs px-3 py-1 rounded-full ${color} text-white`;
+        }
+
+        // Load human-sounding voices
+        async function loadVoices() {
+            const voices = synth.getVoices();
+            voiceSelect.innerHTML = '';
             
-            btnPlayPause: document.getElementById('btn-play-pause'),
-            playIcon: document.getElementById('play-icon'),
-            btnPrevPage: document.getElementById('btn-prev-page'),
-            btnNextPage: document.getElementById('btn-next-page'),
-            progressBar: document.getElementById('progress-bar'),
-            progressCurrent: document.getElementById('progress-current'),
-            progressTotal: document.getElementById('progress-total'),
-            voiceSelect: document.getElementById('voice-select'),
-            errorState: document.getElementById('error-state'),
-            errorMessage: document.getElementById('error-message')
-        };
-
-        function resetToEmptyState() {
-            ui.errorState.classList.add('hidden');
-            ui.readingState.classList.add('hidden');
-            ui.emptyState.classList.remove('hidden');
-            ui.fileUpload.value = ''; // Reset file input
-        }
-
-        // --- STREAMING_CHUNK:Audio Processing Utilities... ---
-        // Converts base64 PCM16 data from the Gemini API into a playable WAV file
-        function base64ToArrayBuffer(base64) {
-            const binaryString = window.atob(base64);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-            return bytes.buffer;
-        }
-
-        function writeString(view, offset, string) {
-            for (let i = 0; i < string.length; i++) {
-                view.setUint8(offset + i, string.charCodeAt(i));
-            }
-        }
-
-        function pcmToWav(pcmData, sampleRate) {
-            const numChannels = 1;
-            const bitsPerSample = 16;
-            const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-            const blockAlign = numChannels * (bitsPerSample / 8);
-            const dataSize = pcmData.length * (bitsPerSample / 8);
-            const buffer = new ArrayBuffer(44 + dataSize);
-            const view = new DataView(buffer);
-
-            writeString(view, 0, 'RIFF');
-            view.setUint32(4, 36 + dataSize, true);
-            writeString(view, 8, 'WAVE');
-            writeString(view, 12, 'fmt ');
-            view.setUint32(16, 16, true);
-            view.setUint16(20, 1, true);
-            view.setUint16(22, numChannels, true);
-            view.setUint32(24, sampleRate, true);
-            view.setUint32(28, byteRate, true);
-            view.setUint16(32, blockAlign, true);
-            view.setUint16(34, bitsPerSample, true);
-            writeString(view, 36, 'data');
-            view.setUint32(40, dataSize, true);
-
-            let offset = 44;
-            for (let i = 0; i < pcmData.length; i++, offset += 2) {
-                view.setInt16(offset, pcmData[i], true);
-            }
-
-            return new Blob([view], { type: 'audio/wav' });
-        }
-
-        // --- STREAMING_CHUNK:Gemini TTS API Integration... ---
-        // Fetches audio from Gemini AI. Extremely human-like voices.
-        async function fetchAIAudio(text) {
-            if (!text || text.trim() === "") return null;
+            // Try to prefer high-quality Google voices if available
+            voices.sort((a, b) => (b.name.includes('Google') ? 1 : 0) - (a.name.includes('Google') ? 1 : 0));
             
-            const apiKey = ""; // Canvas provides this automatically
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
-            const selectedVoice = ui.voiceSelect.value;
-
-            const payload = {
-                contents: [{ parts: [{ text: text }] }],
-                generationConfig: {
-                    responseModalities: ["AUDIO"],
-                    speechConfig: {
-                        voiceConfig: {
-                            prebuiltVoiceConfig: { voiceName: selectedVoice }
-                        }
-                    }
-                },
-                model: "gemini-2.5-flash-preview-tts"
-            };
-
-            try {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                
-                if (!response.ok) throw new Error("API request failed");
-                
-                const result = await response.json();
-                const part = result?.candidates?.[0]?.content?.parts?.[0];
-                const audioData = part?.inlineData?.data;
-                const mimeType = part?.inlineData?.mimeType; // usually "audio/pcm;rate=24000"
-
-                if (audioData && mimeType) {
-                    const match = mimeType.match(/rate=(\d+)/);
-                    const sampleRate = match ? parseInt(match[1], 10) : 24000;
-                    
-                    const pcmBuffer = base64ToArrayBuffer(audioData);
-                    const pcm16 = new Int16Array(pcmBuffer);
-                    const wavBlob = pcmToWav(pcm16, sampleRate);
-                    return URL.createObjectURL(wavBlob);
-                }
-            } catch (error) {
-                console.error("TTS Fetch Error:", error);
-                return null;
-            }
-            return null;
+            voices.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v.name;
+                // Identify gender/type by name string for better labeling
+                const type = v.name.toLowerCase().includes('female') ? 'Female' : 
+                             v.name.toLowerCase().includes('male') ? 'Male' : 'Neutral';
+                opt.textContent = `${v.name} (${type})`;
+                if (v.default) opt.selected = true;
+                voiceSelect.appendChild(opt);
+            });
         }
 
-        // --- STREAMING_CHUNK:PDF Parsing & Chunking logic... ---
-        ui.fileUpload.addEventListener('change', async (e) => {
+        // Wait for voices to load
+        speechSynthesis.onvoiceschanged = loadVoices;
+        loadVoices();
+
+        // PDF Processing logic
+        document.getElementById('upload').onchange = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
-
-            ui.errorState.classList.add('hidden');
-            showLoading();
-            state.fileName = file.name;
-            ui.bookTitle.textContent = file.name;
             
+            document.getElementById('spinner').classList.remove('hidden');
+            document.getElementById('instruction-text').textContent = "Extracting text structure...";
+
             try {
-                const arrayBuffer = await file.arrayBuffer();
+                const buffer = await file.arrayBuffer();
+                pdf = await pdfjsLib.getDocument(buffer).promise;
+                pagesText = [];
                 
-                // Using pdfjsLib (capitalized correctly for the global object)
-                const loadingTask = pdfjsLib.getDocument({data: arrayBuffer});
-                state.pdfDoc = await loadingTask.promise;
-                state.totalPages = state.pdfDoc.numPages;
-                
-                // Setup UI limits
-                ui.progressBar.max = state.totalPages;
-                ui.progressTotal.textContent = state.totalPages;
-                
-                // Load saved page or start at 1
-                const savedPage = localStorage.getItem(`pdf_page_${state.fileName}`);
-                state.currentPage = savedPage ? parseInt(savedPage) : 1;
-                
-                // Reveal UI before rendering to ensure dimensions are correct
-                ui.emptyState.classList.add('hidden');
-                ui.readingState.classList.remove('hidden');
-                ui.playerControls.classList.remove('translate-y-full');
-                
-                await renderPage(state.currentPage);
-                hideLoading();
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const content = await page.getTextContent();
+                    // Basic text extraction logic
+                    pagesText.push(content.items.map(item => item.str).join(" "));
+                }
 
+                document.getElementById('import-section').classList.add('hidden');
+                document.getElementById('controls-section').classList.remove('hidden');
+                document.getElementById('viewer').classList.remove('hidden');
+                renderPage(1);
+                document.getElementById('spinner').classList.add('hidden');
             } catch (err) {
-                console.error("PDF Load Error:", err);
-                hideLoading();
-                ui.emptyState.classList.add('hidden');
-                ui.readingState.classList.add('hidden');
-                ui.errorState.classList.remove('hidden');
-                ui.errorMessage.textContent = "Failed to parse the PDF. The file might be corrupted or secured.";
-            }
-        });
-
-        async function renderPage(pageNo) {
-            if (!state.pdfDoc) return;
-            
-            // Reset page state
-            stopPlayback();
-            ui.statusBadge.textContent = "Extracting Text...";
-            state.currentPage = pageNo;
-            ui.pageIndicator.textContent = `Page ${pageNo}`;
-            ui.progressBar.value = pageNo;
-            ui.progressCurrent.textContent = pageNo;
-            localStorage.setItem(`pdf_page_${state.fileName}`, pageNo);
-            
-            try {
-                const page = await state.pdfDoc.getPage(pageNo);
-                const textContent = await page.getTextContent();
-                
-                // Construct raw text, accounting for newlines
-                let rawText = "";
-                let lastY = -1;
-                for (let item of textContent.items) {
-                    if (lastY !== -1 && Math.abs(item.transform[5] - lastY) > 5) {
-                        rawText += " ";
-                    }
-                    rawText += item.str;
-                    lastY = item.transform[5];
-                }
-                
-                // Clean up text (remove excessive spaces, fix hyphenation)
-                let cleanText = rawText.replace(/\s+/g, ' ').replace(/(-\s+)/g, '').trim();
-                
-                if (!cleanText) {
-                    cleanText = "This page appears to be blank or contains unreadable images.";
-                }
-
-                // Chunk into logical sentences for smooth TTS
-                // Split by ., !, or ? followed by a space or end of string
-                state.sentences = cleanText.match(/[^.!?]+[.!?]+(?:\s|$)/g) || [cleanText];
-                // Trim the sentences to remove leading/trailing whitespace
-                state.sentences = state.sentences.map(s => s.trim()).filter(s => s.length > 0);
-                
-                state.currentSentenceIdx = 0;
-                state.audioCache = {}; // clear old audio
-                
-                // Render text to screen inside spans so we can highlight them
-                ui.textContent.innerHTML = '';
-                state.sentences.forEach((sentence, idx) => {
-                    const span = document.createElement('span');
-                    span.id = `sentence-${idx}`;
-                    span.textContent = sentence + " ";
-                    span.className = "transition-all duration-200 cursor-pointer hover:text-sky-300";
-                    // Allow clicking a sentence to jump to it
-                    span.onclick = () => {
-                        stopPlayback();
-                        state.currentSentenceIdx = idx;
-                        updateHighlight();
-                        togglePlayPause();
-                    };
-                    ui.textContent.appendChild(span);
-                });
-
-                ui.statusBadge.textContent = "Ready";
-                updateHighlight();
-                
-                // Auto-play if we are turning the page while reading
-                if (state.isPlaying) {
-                    playNextSentence();
-                }
-
-            } catch (err) {
-                console.error("Page Render Error:", err);
-                ui.textContent.innerHTML = "<p class='text-red-400'>Error extracting text from this page.</p>";
-            }
-        }
-
-        // --- STREAMING_CHUNK:Playback Engine & Highlighting... ---
-        function updateHighlight() {
-            // Remove old highlights
-            document.querySelectorAll('#text-content span').forEach(el => {
-                el.classList.remove('sentence-highlight');
-            });
-            // Add new highlight
-            const currentEl = document.getElementById(`sentence-${state.currentSentenceIdx}`);
-            if (currentEl) {
-                currentEl.classList.add('sentence-highlight');
-                // Scroll into view gently
-                currentEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-        }
-
-        async function preloadAudio(index) {
-            if (index >= state.sentences.length || state.audioCache[index]) return;
-            if (state.preloadingIdx === index) return; // already preloading
-            
-            state.preloadingIdx = index;
-            const text = state.sentences[index];
-            const url = await fetchAIAudio(text);
-            if (url) {
-                state.audioCache[index] = url;
-            }
-            state.preloadingIdx = -1;
-        }
-
-        async function playNextSentence() {
-            if (!state.isPlaying) return;
-            
-            if (state.currentSentenceIdx >= state.sentences.length) {
-                // End of page, go to next
-                if (state.currentPage < state.totalPages) {
-                    await renderPage(state.currentPage + 1);
-                } else {
-                    stopPlayback();
-                    ui.statusBadge.textContent = "Book Finished";
-                }
-                return;
-            }
-
-            ui.statusBadge.textContent = "Speaking...";
-            updateHighlight();
-
-            const currentIdx = state.currentSentenceIdx;
-            
-            // Check cache or fetch
-            let audioUrl = state.audioCache[currentIdx];
-            if (!audioUrl) {
-                ui.statusBadge.textContent = "Buffering...";
-                audioUrl = await fetchAIAudio(state.sentences[currentIdx]);
-                if (!audioUrl) {
-                    // Skip if failed
-                    state.currentSentenceIdx++;
-                    playNextSentence();
-                    return;
-                }
-                state.audioCache[currentIdx] = audioUrl;
-            }
-
-            // Start preloading the *next* sentence to prevent buffering gaps
-            preloadAudio(currentIdx + 1);
-
-            // Play current audio
-            audioPlayer.src = audioUrl;
-            audioPlayer.play().catch(e => {
-                console.error("Audio play error", e);
-                stopPlayback();
-            });
-        }
-
-        // Audio sequence handler
-        audioPlayer.onended = () => {
-            if (state.isPlaying) {
-                // Free up memory from old audio blob
-                if (state.audioCache[state.currentSentenceIdx]) {
-                    URL.revokeObjectURL(state.audioCache[state.currentSentenceIdx]);
-                    delete state.audioCache[state.currentSentenceIdx];
-                }
-                
-                state.currentSentenceIdx++;
-                playNextSentence();
+                alert("Failed to process document. It might be an image-only PDF.");
+                document.getElementById('spinner').classList.add('hidden');
             }
         };
 
-        // --- STREAMING_CHUNK:Control Button Listeners... ---
-        function togglePlayPause() {
-            if (!state.pdfDoc) return;
+        function renderPage(p) {
+            currentPage = p;
+            document.getElementById('output').textContent = pagesText[p - 1];
+            document.getElementById('page-indicator').textContent = `Page ${p} / ${pdf.numPages}`;
+            updateStatus("Ready");
+        }
+
+        document.getElementById('prev-page').onclick = () => { if(currentPage > 1) renderPage(currentPage - 1); };
+        document.getElementById('next-page').onclick = () => { if(currentPage < pdf.numPages) renderPage(currentPage + 1); };
+
+        // Playback logic
+        function speakPage(text) {
+            synth.cancel();
             
-            state.isPlaying = !state.isPlaying;
-            
-            if (state.isPlaying) {
-                ui.playIcon.classList.remove('fa-play');
-                ui.playIcon.classList.add('fa-pause');
-                ui.playIcon.classList.remove('ml-1');
-                
-                // If audio is paused mid-sentence, resume
-                if (audioPlayer.src && audioPlayer.paused && audioPlayer.currentTime > 0 && !audioPlayer.ended) {
-                    audioPlayer.play();
-                    ui.statusBadge.textContent = "Speaking...";
-                } else {
-                    playNextSentence();
+            // Chunk by sentence-like structures (punctuation)
+            const chunks = text.match(/[^.!?]+[.!?]+/g) || [text];
+            let chunkIndex = 0;
+
+            function playChunk() {
+                if (chunkIndex >= chunks.length) {
+                    isSpeaking = false;
+                    updateStatus("Ready");
+                    return;
                 }
-            } else {
-                ui.playIcon.classList.remove('fa-pause');
-                ui.playIcon.classList.add('fa-play');
-                ui.playIcon.classList.add('ml-1');
-                audioPlayer.pause();
-                ui.statusBadge.textContent = "Paused";
+
+                utterance = new SpeechSynthesisUtterance(chunks[chunkIndex]);
+                utterance.rate = parseFloat(rateInput.value);
+                utterance.voice = synth.getVoices().find(v => v.name === voiceSelect.value);
+                
+                utterance.onstart = () => { isSpeaking = true; updateStatus("Playing...", "bg-green-600"); };
+                utterance.onend = () => { chunkIndex++; playChunk(); };
+                utterance.onerror = () => { isSpeaking = false; updateStatus("Error", "bg-red-600"); };
+                
+                synth.speak(utterance);
             }
+            
+            playChunk();
         }
 
-        function stopPlayback() {
-            state.isPlaying = false;
-            audioPlayer.pause();
-            audioPlayer.currentTime = 0;
-            ui.playIcon.classList.remove('fa-pause');
-            ui.playIcon.classList.add('fa-play');
-            ui.playIcon.classList.add('ml-1');
-            ui.statusBadge.textContent = "Ready";
-        }
+        document.getElementById('play').onclick = () => {
+            if (synth.speaking && synth.paused) { synth.resume(); return; }
+            if (isSpeaking) return;
+            if (pagesText[currentPage - 1]) speakPage(pagesText[currentPage - 1]);
+        };
 
-        // Event Listeners
-        ui.btnPlayPause.addEventListener('click', togglePlayPause);
+        document.getElementById('pause').onclick = () => synth.pause();
+        document.getElementById('stop').onclick = () => { synth.cancel(); isSpeaking = false; updateStatus("Ready"); };
         
-        ui.btnNextPage.addEventListener('click', () => {
-            if (state.currentPage < state.totalPages) {
-                renderPage(state.currentPage + 1);
-            }
-        });
-        
-        ui.btnPrevPage.addEventListener('click', () => {
-            if (state.currentPage > 1) {
-                renderPage(state.currentPage - 1);
-            }
-        });
-
-        // Scrubbing the page slider
-        ui.progressBar.addEventListener('input', (e) => {
-            const page = parseInt(e.target.value);
-            ui.progressCurrent.textContent = page;
-        });
-        
-        ui.progressBar.addEventListener('change', (e) => {
-            const page = parseInt(e.target.value);
-            if (page !== state.currentPage) {
-                renderPage(page);
-            }
-        });
-
-        // When user changes voice, clear cache so next sentence uses new voice
-        ui.voiceSelect.addEventListener('change', () => {
-            state.audioCache = {}; 
-        });
-
-        // Utility
-        function showLoading() {
-            ui.loadingOverlay.classList.remove('hidden');
-            ui.loadingOverlay.classList.add('flex');
-        }
-        function hideLoading() {
-            ui.loadingOverlay.classList.add('hidden');
-            ui.loadingOverlay.classList.remove('flex');
-        }
+        // PWA Manifest generator (dynamically injected for installability)
+        const manifest = {
+            "name": "AI Reader",
+            "short_name": "AI Reader",
+            "start_url": ".",
+            "display": "standalone",
+            "background_color": "#0f172a",
+            "theme_color": "#0f172a",
+            "icons": [{ "src": "https://placehold.co/192x192/0f172a/sky-400?text=AI", "sizes": "192x192", "type": "image/png" }]
+        };
+        const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+        const manifestURL = URL.createObjectURL(blob);
+        document.querySelector('link[rel="manifest"]').href = manifestURL;
     </script>
 </body>
 </html>
