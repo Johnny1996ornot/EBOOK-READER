@@ -2,302 +2,273 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice Audio Book Reader</title>
-    <!-- PDF.js for parsing PDF files directly in the browser -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI Voice Reader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        :root {
-            --bg-color: #121212;
-            --surface-color: #1e1e1e;
-            --primary-color: #bb86fc;
-            --text-color: #e0e0e0;
-        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            background-color: #0f172a; /* Slate 900 */
+        }
+        .app-container {
+            max-width: 600px;
+            margin: 0 auto;
             height: 100vh;
-        }
-        header {
-            background-color: var(--surface-color);
-            padding: 15px;
-            text-align: center;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        }
-        .container {
-            flex: 1;
             display: flex;
             flex-direction: column;
-            padding: 20px;
-            overflow: hidden;
+            background-color: #1e293b; /* Slate 800 */
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            position: relative;
         }
-        .controls-panel {
-            background-color: var(--surface-color);
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .book-viewer {
-            flex: 1;
-            background-color: var(--surface-color);
-            border-radius: 8px;
-            padding: 20px;
-            overflow-y: auto;
-            font-size: 1.2rem;
-            line-height: 1.6;
-            border: 1px solid #333;
-        }
-        .nav-buttons {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 15px;
-            gap: 20px;
-        }
-        button, label.file-label {
-            background-color: var(--primary-color);
-            color: #000;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-weight: bold;
-            font-size: 1rem;
-            transition: opacity 0.2s;
-        }
-        button:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-        select, input[type="range"] {
-            background: #333;
-            color: #fff;
-            border: 1px solid #555;
-            padding: 8px;
-            border-radius: 5px;
-        }
-        input[type="file"] {
+        .hide-scrollbar::-webkit-scrollbar {
             display: none;
         }
-        .status {
-            font-size: 0.9rem;
-            color: #aaa;
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .sentence-highlight {
+            background-color: rgba(56, 189, 248, 0.2);
+            border-radius: 4px;
+            padding: 2px 0;
+            color: #38bdf8;
+            transition: all 0.3s ease;
+        }
+        /* Custom Range Slider */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            margin-top: -6px;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #475569;
+            border-radius: 2px;
         }
     </style>
 </head>
-<body>
+<body class="text-slate-200">
 
-    <header>
-        <h1>Smart Voice E-Reader</h1>
-    </header>
+    <div class="app-container">
+        <!-- Top App Bar -->
+        <div class="bg-slate-900 px-4 py-4 flex items-center justify-between shadow-md z-10">
+            <h1 class="text-xl font-bold text-sky-400"><i class="fas fa-book-open mr-2"></i>AI Reader</h1>
+            <button id="installBtn" class="bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold py-1.5 px-3 rounded-full hidden transition-colors">
+                <i class="fas fa-download mr-1"></i> Install App
+            </button>
+        </div>
 
-    <div class="container">
-        <div class="controls-panel">
-            <div>
-                <label class="file-label" for="file-upload">Import PDF</label>
-                <input type="file" id="file-upload" accept=".pdf">
-                <span id="file-name" class="status">No file loaded</span>
+        <!-- Main Content Area -->
+        <div class="flex-1 overflow-y-auto hide-scrollbar p-5 relative" id="reader-container">
+            
+            <!-- Empty State -->
+            <div id="empty-state" class="h-full flex flex-col items-center justify-center text-center space-y-6">
+                <div class="w-24 h-24 bg-slate-800 rounded-full flex items-center justify-center text-sky-400 text-4xl shadow-inner">
+                    <i class="fas fa-file-pdf"></i>
+                </div>
+                <div>
+                    <h2 class="text-2xl font-bold text-white mb-2">No Book Loaded</h2>
+                    <p class="text-slate-400 text-sm max-w-xs mx-auto">Import a PDF file from your device to start listening with human-like AI voices.</p>
+                </div>
+                <label for="file-upload" class="bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg shadow-sky-500/30 cursor-pointer transition-all active:scale-95 flex items-center">
+                    <i class="fas fa-plus mr-2"></i> Import Document
+                </label>
+                <input type="file" id="file-upload" accept=".pdf" class="hidden">
+            </div>
+
+            <!-- Reading State -->
+            <div id="reading-state" class="hidden pb-24">
+                <div class="flex justify-between items-center mb-6">
+                    <div class="text-sm font-medium text-slate-400 bg-slate-900 px-3 py-1 rounded-full border border-slate-700 truncate max-w-[200px]" id="book-title">
+                        book_name.pdf
+                    </div>
+                    <div class="text-sm font-bold text-sky-400 bg-sky-400/10 px-3 py-1 rounded-full" id="page-indicator">
+                        Page 1
+                    </div>
+                </div>
+                <div id="text-content" class="text-lg leading-relaxed text-slate-300 font-medium space-y-4">
+                    <!-- Text chunks will be injected here -->
+                </div>
             </div>
             
-            <div>
-                <label for="voice-select">Voice: </label>
-                <select id="voice-select"><option>Loading voices...</option></select>
-            </div>
-
-            <div>
-                <button id="btn-play" disabled>▶ Play</button>
-                <button id="btn-pause" disabled>⏸ Pause</button>
-                <button id="btn-stop" disabled>⏹ Stop</button>
+            <!-- Loading Overlay -->
+            <div id="loading-overlay" class="absolute inset-0 bg-slate-800/80 backdrop-blur-sm hidden flex-col items-center justify-center z-20">
+                <i class="fas fa-circle-notch fa-spin text-4xl text-sky-400 mb-4"></i>
+                <p class="text-slate-200 font-medium" id="loading-text">Processing Document...</p>
             </div>
         </div>
 
-        <div class="book-viewer" id="viewer-content">
-            Please import a PDF file to begin reading. Your page progress will be saved automatically.
-        </div>
+        <!-- Bottom Player Controls -->
+        <div class="bg-slate-900 rounded-t-3xl p-5 shadow-[0_-10px_40px_rgba(0,0,0,0.3)] z-10 transition-transform transform translate-y-full" id="player-controls">
+            
+            <!-- Voice Selection -->
+            <div class="mb-4 flex items-center justify-between">
+                <label class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Voice Model</label>
+                <select id="voice-select" class="bg-slate-800 text-sky-400 text-sm font-medium border border-slate-700 rounded-lg px-2 py-1 outline-none focus:border-sky-500">
+                    <option value="Aoede">Aoede (Breezy Female)</option>
+                    <option value="Charon">Charon (Deep Male)</option>
+                    <option value="Puck">Puck (Upbeat Male)</option>
+                    <option value="Kore">Kore (Firm Female)</option>
+                    <option value="Fenrir">Fenrir (Energetic Male)</option>
+                </select>
+            </div>
 
-        <div class="nav-buttons">
-            <button id="btn-prev" disabled>◀ Back Page</button>
-            <span id="page-number" class="status">Page: 0 / 0</span>
-            <button id="btn-next" disabled>Next Page ▶</button>
+            <!-- Progress Bar -->
+            <div class="mb-6">
+                <div class="flex justify-between text-xs text-slate-400 mb-2 font-medium">
+                    <span id="progress-current">0%</span>
+                    <span>Page Progress</span>
+                    <span id="progress-total">100%</span>
+                </div>
+                <input type="range" id="progress-bar" min="0" max="100" value="0" class="w-full" disabled>
+            </div>
+
+            <!-- Playback Buttons -->
+            <div class="flex items-center justify-center space-x-6">
+                <button id="btn-prev-page" class="w-12 h-12 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
+                    <i class="fas fa-step-backward text-lg"></i>
+                </button>
+                
+                <button id="btn-play-pause" class="w-16 h-16 flex items-center justify-center rounded-full bg-sky-500 hover:bg-sky-600 text-white shadow-lg shadow-sky-500/30 transition-transform active:scale-95">
+                    <i class="fas fa-play text-2xl ml-1" id="play-icon"></i>
+                </button>
+                
+                <button id="btn-next-page" class="w-12 h-12 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
+                    <i class="fas fa-step-forward text-lg"></i>
+                </button>
+            </div>
         </div>
     </div>
 
     <script>
-        // Setup PDF.js worker
+        // PDF.js configuration
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
 
-        let pdfDoc = null;
-        let currentPage = 1;
-        let totalPages = 0;
-        let pageTextCache = "";
-        let currentFileName = "";
-        
-        // Speech Synthesis setup
-        const synth = window.speechSynthesis;
-        let utterance = null;
+        // --- Application State ---
+        let state = {
+            pdfDoc: null,
+            fileName: "",
+            totalPages: 0,
+            currentPage: 1,
+            sentences: [],        // Array of text chunks for the current page
+            currentSentenceIdx: 0, // Which sentence we are currently reading
+            isPlaying: false,
+            audioPlayer: new Audio(),
+            nextAudioUrl: null,    // Buffer for the next audio chunk
+            isFetchingNext: false
+        };
 
-        // DOM elements
-        const fileUpload = document.getElementById('file-upload');
-        const fileNameSpan = document.getElementById('file-name');
-        const viewerContent = document.getElementById('viewer-content');
-        const pageNumberSpan = document.getElementById('page-number');
-        const voiceSelect = document.getElementById('voice-select');
-        
-        const btnPlay = document.getElementById('btn-play');
-        const btnPause = document.getElementById('btn-pause');
-        const btnStop = document.getElementById('btn-stop');
-        const btnPrev = document.getElementById('btn-prev');
-        const btnNext = document.getElementById('btn-next');
+        // --- DOM Elements ---
+        const ui = {
+            fileUpload: document.getElementById('file-upload'),
+            emptyState: document.getElementById('empty-state'),
+            readingState: document.getElementById('reading-state'),
+            playerControls: document.getElementById('player-controls'),
+            textContent: document.getElementById('text-content'),
+            bookTitle: document.getElementById('book-title'),
+            pageIndicator: document.getElementById('page-indicator'),
+            loadingOverlay: document.getElementById('loading-overlay'),
+            loadingText: document.getElementById('loading-text'),
+            
+            btnPlayPause: document.getElementById('btn-play-pause'),
+            playIcon: document.getElementById('play-icon'),
+            btnPrevPage: document.getElementById('btn-prev-page'),
+            btnNextPage: document.getElementById('btn-next-page'),
+            progressBar: document.getElementById('progress-bar'),
+            progressCurrent: document.getElementById('progress-current'),
+            voiceSelect: document.getElementById('voice-select'),
+            installBtn: document.getElementById('installBtn')
+        };
 
-        // Load standard mobile and desktop system voices
-        function populateVoiceList() {
-            if (!synth) return;
-            const voices = synth.getVoices();
-            voiceSelect.innerHTML = '';
-            
-            voices.forEach((voice) => {
-                const option = document.createElement('option');
-                option.textContent = `${voice.name} (${voice.lang})`;
-                option.setAttribute('data-lang', voice.lang);
-                option.setAttribute('data-name', voice.name);
-                voiceSelect.appendChild(option);
-            });
-        }
-        populateVoiceList();
-        if (speechSynthesis.onvoiceschanged !== undefined) {
-            speechSynthesis.onvoiceschanged = populateVoiceList;
-        }
-
-        // Handle File Import
-        fileUpload.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            
-            currentFileName = file.name;
-            fileNameSpan.textContent = currentFileName;
-            
-            const fileReader = new FileReader();
-            fileReader.onload = async function() {
-                const typedarray = new Uint8Array(this.result);
-                try {
-                    pdfDoc = await pdfjsLib.getDocument(typedarray).promise;
-                    totalPages = pdfDoc.numPages;
-                    
-                    // Check if user has saved history for this specific book
-                    const savedPage = localStorage.getItem(`saved_page_${currentFileName}`);
-                    currentPage = savedPage ? parseInt(savedPage) : 1;
-                    
-                    renderPage(currentPage);
-                    enableControls();
-                } catch (error) {
-                    viewerContent.textContent = "Error parsing PDF structure. Please try another file.";
-                }
-            };
-            fileReader.readAsArrayBuffer(file);
-        });
-
-        // Extract and display text layout for current page
-        async function renderPage(pageNo) {
-            if (!pdfDoc) return;
-            synth.cancel(); // Stop talking if page turns
-            
-            viewerContent.textContent = "Extracting book layout...";
-            pageNumberSpan.textContent = `Page: ${pageNo} / ${totalPages}`;
-            
-            const page = await pdfDoc.getPage(pageNo);
-            const textContent = await page.getTextContent();
-            
-            // Reconstruct continuous strings from raw coordinates
-            let lastY = -1;
-            let extractedText = "";
-            
-            for (let item of textContent.items) {
-                if (lastY !== -1 && Math.abs(item.transform[5] - lastY) > 5) {
-                    extractedText += "\n";
-                }
-                extractedText += item.str + " ";
-                lastY = item.transform[5];
+        // --- Audio Decoding Utilities (Required for Gemini TTS) ---
+        function base64ToArrayBuffer(base64) {
+            const binaryString = window.atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
             }
-            
-            pageTextCache = extractedText.trim() || "[This page contains images or formatting that cannot be read out loud.]";
-            viewerContent.innerHTML = pageTextCache.replace(/\n/g, '<br>');
-            viewerContent.scrollTop = 0;
-            
-            // Save state to local browser memory
-            localStorage.setItem(`saved_page_${currentFileName}`, pageNo);
-            
-            // Toggle navigation button rules
-            btnPrev.disabled = pageNo <= 1;
-            btnNext.disabled = pageNo >= totalPages;
+            return bytes.buffer;
         }
 
-        function enableControls() {
-            btnPlay.disabled = false;
-            btnPause.disabled = false;
-            btnStop.disabled = false;
-        }
-
-        // Audio Management Rules
-        btnPlay.addEventListener('click', () => {
-            if (synth.speaking && synth.paused) {
-                synth.resume();
-                return;
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
             }
+        }
+
+        function pcmToWav(pcmData, sampleRate) {
+            const numChannels = 1;
+            const bitsPerSample = 16;
+            const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+            const blockAlign = numChannels * (bitsPerSample / 8);
+            const dataSize = pcmData.length * (bitsPerSample / 8);
+            const buffer = new ArrayBuffer(44 + dataSize);
+            const view = new DataView(buffer);
+
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + dataSize, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, byteRate, true);
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, bitsPerSample, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, dataSize, true);
+
+            let offset = 44;
+            for (let i = 0; i < pcmData.length; i++, offset += 2) {
+                view.setInt16(offset, pcmData[i], true);
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+        // --- STREAMING_CHUNK:Gemini AI TTS Integration... ---
+        async function fetchAIAudio(text) {
+            if (!text || text.trim() === "") return null;
             
-            if (pageTextCache) {
-                synth.cancel(); // Clear current execution stack
-                utterance = new SpeechSynthesisUtterance(pageTextCache);
-                
-                // Track language attributes or standard selections
-                const selectedOption = voiceSelect.selectedOptions[0].getAttribute('data-name');
-                const voices = synth.getVoices();
-                utterance.voice = voices.find(v => v.name === selectedOption);
-                
-                // Automatically turn page when reading finishes
-                utterance.onend = () => {
-                    if (currentPage < totalPages) {
-                        currentPage++;
-                        renderPage(currentPage).then(() => btnPlay.click());
+            const apiKey = ""; // Canvas provides this automatically
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+            
+            const selectedVoice = ui.voiceSelect.value;
+
+            const payload = {
+                contents: [{ parts: [{ text: text }] }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: selectedVoice }
+                        }
                     }
-                };
+                },
+                model: "gemini-2.5-flash-preview-tts"
+            };
 
-                synth.speak(utterance);
-            }
-        });
-
-        btnPause.addEventListener('click', () => {
-            if (synth.speaking && !synth.paused) {
-                synth.pause();
-            }
-        });
-
-        btnStop.addEventListener('click', () => {
-            synth.cancel();
-        });
-
-        // Navigation Actions
-        btnNext.addEventListener('click', () => {
-            if (currentPage < totalPages) {
-                currentPage++;
-                renderPage(currentPage);
-            }
-        });
-
-        btnPrev.addEventListener('click', () => {
-            if (currentPage > 1) {
-                currentPage--;
-                renderPage(currentPage);
-            }
-        });
-    </script>
-</body>
-</html>
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) throw
